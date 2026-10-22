@@ -68,3 +68,23 @@ test('cue text is accessible in all layouts, including minimal and journal',()=>
     }
   }
 });
+
+test('classic Cornell keeps its summary on the body page when only the trailing gap would overflow',()=>{
+  const settings={...defaultSettings(),layout:'classic-cornell'};
+  const body=Array.from({length:15},(_,i)=>`L${i}`).join('\n');
+  const note={title:'Boundary',cues:[],sections:[{content:body,highlights:[]}],summary:'Short summary'};
+  const plan=planPages(ctx,note,settings);
+  assert.equal(plan.pages.length,1);
+  assert.equal(plan.pages[0].placements.filter(p=>p.kind==='body').length,15);
+  assert.equal(plan.pages[0].placements.filter(p=>p.kind==='summary').length,1);
+});
+
+test('section spacing never creates a page containing only decorations before a long heading',()=>{
+  const settings={...defaultSettings(),layout:'classic-cornell'};
+  const body=Array.from({length:15},(_,i)=>`L${i}`).join('\n');
+  const heading='LONG_HEADING'.repeat(200);
+  const note={title:'Boundary',cues:[],sections:[{content:body,highlights:[]},{heading,content:'FINAL_BODY',highlights:[]}],summary:'Short summary'};
+  const plan=planPages(ctx,note,settings);
+  assert.ok(plan.pages.every(p=>p.placements.some(x=>['body','heading','summary'].includes(x.kind))));
+  assert.equal(plan.pages.flatMap(p=>p.placements.filter(x=>x.kind==='heading').map(x=>x.text)).join(''),heading);
+});

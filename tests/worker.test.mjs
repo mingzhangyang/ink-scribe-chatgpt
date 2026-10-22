@@ -97,7 +97,7 @@ test('cut-off generations and oversized model data never enter the note',async()
   let count=0;
   const response=await handleRequest(req(),env({AI:{run:async()=>{
     count++;
-    return {choices:[{finish_reason:count===1?'length':'stop',message:{content:JSON.stringify(oversized)}}]};
+    return {choices:[{finish_reason:count===1?'length':'stop',message:{content:JSON.stringify(count===1?EXAMPLE:oversized)}}]};
   }}}));
   assert.deepEqual(await errorCode(response),[502,'AI_OUTPUT_INVALID']);
   assert.equal(count,2);
@@ -112,4 +112,24 @@ test('repeated model summary is not published as a finished note',()=>{
 test('native object envelopes undergo the same summary quality checks',()=>{
   const o={...EXAMPLE,summary:'Sentence that keeps repeating. '.repeat(4)};
   assert.throws(()=>parseModelResponse({response:o}),ContractError);
+});
+
+test('truncation is rejected even when the returned JSON is independently schema-valid',()=>{
+  const content=JSON.stringify(EXAMPLE);
+  const stopped={choices:[{finish_reason:'stop',message:{content}}]};
+  const truncated={choices:[{finish_reason:'length',message:{content}}]};
+  for(const wrap of [value=>value,value=>({result:value})]){
+    assert.equal(parseModelResponse(wrap(stopped)).title,EXAMPLE.title);
+    assert.throws(()=>parseModelResponse(wrap(truncated)),/Model response was truncated/);
+  }
+});
+
+test('two schema-valid but truncated replies hit the retry cap without publishing a note',async()=>{
+  let calls=0;
+  const response=await handleRequest(req(),env({AI:{run:async()=>{
+    calls++;
+    return {choices:[{finish_reason:'length',message:{content:JSON.stringify(EXAMPLE)}}]};
+  }}}));
+  assert.deepEqual(await errorCode(response),[502,'AI_OUTPUT_INVALID']);
+  assert.equal(calls,2);
 });

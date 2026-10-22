@@ -36,8 +36,14 @@ function toast(message, isError = false) {
   el.classList.add('visible');
   toastTimer = window.setTimeout(() => el.classList.remove('visible'), 4000);
 }
-function displayPage() {
+// Layout and page selection must be synchronized before any operation uses them,
+// not only when the next animation frame happens to paint the preview.
+function ensurePlan() {
+  if (!plan) plan = makePlan(note, settings);
   currentPage = Math.max(0, Math.min(plan.pages.length - 1, currentPage));
+}
+function displayPage() {
+  ensurePlan();
   $('page-counter').textContent = `${String(currentPage + 1).padStart(2,'0')} / ${String(plan.pages.length).padStart(2,'0')}`;
   $('prev-page').disabled = currentPage === 0;
   $('next-page').disabled = currentPage === plan.pages.length - 1;
@@ -51,7 +57,6 @@ function schedulePaint(reflow = true) {
   requestAnimationFrame(() => {
     pendingPaint = false;
     try {
-      if (!plan) plan = makePlan(note, settings);
       if (!settings.stickers.some(s => s.id === selectedSticker)) selectedSticker = null;
       updateStickerTools();
       displayPage();
@@ -104,6 +109,7 @@ function installOptions() {
     button.textContent = glyph;button.title = `添加${label}`;button.setAttribute('aria-label', `添加${label}`);
     button.addEventListener('click', () => {
       if (settings.stickers.length >= 36) {toast('最多可以添加 36 个贴纸。', true); return;}
+      ensurePlan();
       const item = {id: (globalThis.crypto?.randomUUID?.() || `sticker-${Date.now()}-${Math.random().toString(36).slice(2)}`), type, x: Math.min(690, 425 + Math.random() * 80), y: Math.min(950, 380 + Math.random() * 90), rotation: 0, scale: 1, page: currentPage};
       if (!validateSticker(item)) {toast('无法创建贴纸。', true);return;}
       settings.stickers.push(item); selectSticker(item.id); markEdited();
@@ -234,10 +240,9 @@ function installDrag() {
   });
 }
 async function handleExport() {
-  if (!plan) plan=makePlan(note,settings);
   const format = $('export-format').value;const scale = Number($('export-scale').value);
   const button=$('export');button.disabled=true;button.textContent='正在制作高清图片…';
-  try { const pages = await exportPages(plan,note,settings,format,scale);toast(`已导出 ${pages} 页${pages > 1 ? '（ZIP 打包）' : ''}。`); }
+  try { ensurePlan(); const pages = await exportPages(plan,note,settings,format,scale);toast(`已导出 ${pages} 页${pages > 1 ? '（ZIP 打包）' : ''}。`); }
   catch (e) {toast(e.message||'无法导出图片',true);}finally{button.disabled=false;button.textContent='⇩ 下载笔记图片';}
 }
 function init() {
@@ -262,13 +267,12 @@ function init() {
   $('sticker-rotation').addEventListener('input',e => {const s=settings.stickers.find(s=>s.id===selectedSticker);if(s){s.rotation=Number(e.target.value);markEdited();updateStickerTools();schedulePaint(false);}});
   $('delete-sticker').addEventListener('click',() => {settings.stickers=settings.stickers.filter(s=>s.id!==selectedSticker);selectSticker(null);markEdited();});
   $('bring-forward').addEventListener('click',() => {const i=settings.stickers.findIndex(s=>s.id===selectedSticker);if(i>=0){settings.stickers.push(...settings.stickers.splice(i,1));markEdited();schedulePaint(false);}});
-  $('prev-page').addEventListener('click',() => {if(currentPage>0){currentPage--;selectedSticker=null;updateStickerTools();schedulePaint(false);}});
-  $('next-page').addEventListener('click',() => {if(currentPage<plan.pages.length-1){currentPage++;selectedSticker=null;updateStickerTools();schedulePaint(false);}});
+  $('prev-page').addEventListener('click',() => {ensurePlan();if(currentPage>0){currentPage--;selectedSticker=null;updateStickerTools();schedulePaint(false);}});
+  $('next-page').addEventListener('click',() => {ensurePlan();if(currentPage<plan.pages.length-1){currentPage++;selectedSticker=null;updateStickerTools();schedulePaint(false);}});
   $('export').addEventListener('click',handleExport);$('header-export').addEventListener('click',handleExport);
   $('copy').addEventListener('click',async() => {
-    if(!plan)plan=makePlan(note,settings);
     const b=$('copy');b.disabled=true;
-    try {await copyPage(plan,note,settings,currentPage);toast('已将当前页图片复制到剪贴板。');}
+    try {ensurePlan();await copyPage(plan,note,settings,currentPage);toast('已将当前页图片复制到剪贴板。');}
     catch(e){toast(e.message||'复制失败，请尝试下载',true);}finally{b.disabled=false;}
   });
   if(document.fonts?.ready)document.fonts.ready.then(() => schedulePaint());

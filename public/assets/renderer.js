@@ -84,6 +84,8 @@ export function planPages(ctx,note,settings){
   const next=()=>{page={placements:[],index:pages.length};pages.push(page);y=PAGE.top;};
   const ensure=(height)=>{if(y+height>bodyBottom && page.placements.length>0)next();};
   const add=(entry,height)=>{ensure(height);page.placements.push({...entry,y});y+=height;};
+  // Spacing does not own a page: only the next real content may advance it.
+  const gap=height=>{y+=height;};
 
   // Free and minimal layouts preserve each cue AND its description as real lines.
   // No decorative chips or fixed item slices stand in for the full cue content.
@@ -93,7 +95,7 @@ export function planPages(ctx,note,settings){
     for(const cue of note.cues){
       const text=cue.note?`${cue.keyword}  /  ${cue.note}`:cue.keyword;
       for(const line of wrapText(ctx,text,mainWidth-22,cueFont))add({kind:'cue-body',text:line},28);
-      add({kind:'section-gap'},11);
+      gap(11);
     }
     add({kind:'cue-divider'},12);
   }
@@ -105,7 +107,8 @@ export function planPages(ctx,note,settings){
     }else if(sectionIndex!==0)add({kind:'separator'},18);
     const lines=wrapText(ctx,section.content,mainWidth,font);
     for(const line of lines)add({kind:'body',text:line,highlights:section.highlights||[],sectionIndex},lineHeight);
-    add({kind:'section-gap'},20);
+    // Classic Cornell's summary has its own reserved band, not body spacing.
+    if(!classic || sectionIndex<note.sections.length-1)gap(20);
   }
   const summaryFont=`${Math.max(19,(settings.fontSize||25)-2)}px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
   const summaryLines=wrapText(ctx,note.summary,classic?590:mainWidth-44,summaryFont);
