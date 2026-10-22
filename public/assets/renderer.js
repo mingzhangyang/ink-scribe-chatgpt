@@ -23,6 +23,30 @@ const bodyStyle = settings => `${settings.fontSize||25}px ${FONT_STACKS[settings
 const titleStyle = settings => `bold 46px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
 const measure=(ctx,string,font)=>{ctx.font=font;return ctx.measureText(string).width;};
 
+/** Fit only the painted heading; the editor retains the full original title.
+ * Exponential bracketing + binary search avoids measuring arbitrarily long
+ * strings when the visible heading can only hold a short prefix.
+ */
+export function fitTitle(ctx,title,font,maxWidth){
+  const full=String(title);
+  if(full.length<=128 && measure(ctx,full,font)<=maxWidth)return full;
+  const chars=Array.from(full); // Never cut UTF-16 surrogate pairs in half.
+  const fits=count=>measure(ctx,chars.slice(0,count).join('')+'…',font)<=maxWidth;
+  let low=0,high=1;
+  while(high<chars.length && fits(high)){
+    low=high;
+    high=Math.min(high*2,chars.length);
+  }
+  // A long but unusually narrow title could still fit in full.
+  if(high===chars.length && measure(ctx,full,font)<=maxWidth)return full;
+  while(low<high){
+    const mid=Math.ceil((low+high)/2);
+    if(fits(mid))low=mid;
+    else high=mid-1;
+  }
+  return chars.slice(0,low).join('')+'…';
+}
+
 /** Keep Unicode code points intact (including emoji), and respect authored newlines. */
 export function wrapText(ctx,text,width,font){
   const output=[]; const paragraphs=String(text??'').replace(/\r/g,'').split('\n');
@@ -162,11 +186,7 @@ function drawHeader(ctx,note,s,pageNumber,total,layout){
   ctx.textAlign='right';ctx.fillText(note.date||new Date().toLocaleDateString('en-CA'),748,66);ctx.textAlign='left';
   ctx.strokeStyle='rgba(111,91,66,.42)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(68,83);ctx.lineTo(752,83);ctx.stroke();
   ctx.fillStyle=INKS[s.ink]||INKS.black;ctx.font=titleStyle(s);
-  let title=String(note.title||'未命名笔记');
-  if(measure(ctx,title,titleStyle(s))>680){
-    const chars=Array.from(title);while(chars.length>1 && measure(ctx,chars.join('')+'…',titleStyle(s))>680)chars.pop();
-    title=chars.join('')+'…';
-  }
+  const title=fitTitle(ctx,note.title||'未命名笔记',titleStyle(s),680);
   ctx.fillText(title,68,147);
   ctx.fillStyle='#a3764e';ctx.fillRect(68,167,42,4);
   label(ctx,layout==='classic-cornell'?'CORNELL NOTES':layout==='free-journal'?'FREE JOURNAL':layout==='minimal'?'STUDY NOTES':'LEARNING JOURNAL',126,173,s,'rgba(103,81,59,.62)');

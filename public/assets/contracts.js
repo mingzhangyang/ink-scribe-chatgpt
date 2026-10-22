@@ -31,6 +31,8 @@ export const NOTE_SCHEMA = {
 };
 
 const isRecord = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+// JSON Schema string lengths count Unicode code points, not UTF-16 code units.
+const codePointLength = value => Array.from(value).length;
 const clean = (v, trim=true) => typeof v === 'string'
   ? (trim ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim()
     : v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ''))
@@ -49,7 +51,7 @@ export function normalizeNote(raw,{forAI=false}={}) {
   assert(Array.isArray(raw.cues) && raw.cues.length <= (forAI ? 12 : 100), 'cues');
   assert(Array.isArray(raw.sections) && raw.sections.length > 0 && raw.sections.length <= (forAI ? 14 : 200), 'sections');
   assert(typeof raw.summary === 'string' && raw.summary.trim().length > 0, 'summary');
-  const bound=(s,max,field)=>{if(forAI)assert(s.length<=max,field);return s;};
+  const bound=(s,max,field)=>{if(forAI)assert(codePointLength(s)<=max,field);return s;};
   const cues=raw.cues.map((cue,i)=>{
     assert(isRecord(cue) && typeof cue.keyword==='string' && typeof cue.note==='string',`cues[${i}]`);
     const keyword=bound(clean(cue.keyword),45,`cues[${i}].keyword`);
@@ -77,7 +79,7 @@ export function normalizeNote(raw,{forAI=false}={}) {
 export function validateStructureRequest(value) {
   if(!isRecord(value)) return 'INVALID_BODY';
   if(typeof value.text!=='string' || !value.text.trim()) return 'TEXT_REQUIRED';
-  if([...value.text].length > MAX_TEXT_LENGTH) return 'TEXT_TOO_LONG';
+  if(codePointLength(value.text) > MAX_TEXT_LENGTH) return 'TEXT_TOO_LONG';
   if(!TEMPLATES.includes(value.template) || !LANGUAGES.includes(value.language) || !LAYOUTS.includes(value.style)) return 'INVALID_OPTIONS';
   return null;
 }

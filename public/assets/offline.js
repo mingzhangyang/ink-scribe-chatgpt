@@ -6,15 +6,25 @@ export function formatOffline(text,template='reading-notes'){
   const first=raw.split('\n').find(x=>x.trim())||'';
   const title=Array.from(first.replace(/^[#*\d.\-\s]+/,'').trim()).slice(0,55).join('')||'InkScribe';
   const chars=Array.from(raw),sections=[];
-  let cursor=0;
+  let cursor=0,leadingWhitespace='';
   while(cursor<chars.length){
     let end=Math.min(cursor+1300,chars.length);
     // Prefer paragraph boundaries, but split long single paragraphs as well.
     if(end<chars.length){
       for(let i=end;i>cursor+850;i--){if(chars[i-1]==='\n'){end=i;break;}}
     }
-    sections.push({heading:sections.length===0?'\u6b63\u6587':`\u7eed\u7bc7 ${sections.length+1}`,
-      content:chars.slice(cursor,end).join(''),highlights:[]});
+    const chunk=chars.slice(cursor,end).join('');
+    // The note contract disallows blank sections. Attach all whitespace to a
+    // neighboring substantive section instead of dropping or rejecting it.
+    if(chunk.trim()){
+      sections.push({heading:sections.length===0?'\u6b63\u6587':`\u7eed\u7bc7 ${sections.length+1}`,
+        content:leadingWhitespace+chunk,highlights:[]});
+      leadingWhitespace='';
+    }else if(sections.length){
+      sections[sections.length-1].content+=chunk;
+    }else{
+      leadingWhitespace+=chunk;
+    }
     cursor=end;
   }
   return {title,date:new Date().toISOString().slice(0,10),cues:[],sections,
