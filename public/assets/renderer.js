@@ -82,7 +82,7 @@ export function planPages(ctx,note,settings){
   const pages=[{placements:[],index:0}];
   let page=pages[0],y=layout==='free-journal'?255:PAGE.top;
   const next=()=>{page={placements:[],index:pages.length};pages.push(page);y=PAGE.top;};
-  const ensure=(height)=>{if(y+height>bodyBottom && y>PAGE.top+6)next();};
+  const ensure=(height)=>{if(y+height>bodyBottom && page.placements.length>0)next();};
   const add=(entry,height)=>{ensure(height);page.placements.push({...entry,y});y+=height;};
 
   // Free and minimal layouts preserve each cue AND its description as real lines.

@@ -40,12 +40,41 @@ const clean = (v, trim=true) => typeof v === 'string'
 const assert = (ok, field) => { if (!ok) throw new ContractError(`Invalid note structure: ${field}`); };
 export class ContractError extends Error { constructor(message){ super(message); this.name='ContractError'; } }
 
+/** Validate generated JSON against the published schema *before* sanitizing.
+ * Otherwise clean() can turn an invalid number/object into an empty string, or
+ * trim an oversized value down until it incorrectly passes a maxLength check.
+ * This is deliberately separate from the permissive local editing contract.
+ */
+function assertGeneratedShape(value,schema,path='root') {
+  if(schema.type==='object'){
+    assert(isRecord(value),path);
+    for(const key of schema.required||[])assert(Object.hasOwn(value,key),`${path}.${key}`);
+    for(const [key,childValue] of Object.entries(value)){
+      const field=path==='root'?key:`${path}.${key}`;
+      const childSchema=schema.properties?.[key];
+      if(!childSchema){assert(schema.additionalProperties!==false,field);continue;}
+      assertGeneratedShape(childValue,childSchema,field);
+    }
+  }else if(schema.type==='array'){
+    assert(Array.isArray(value),path);
+    if(schema.minItems!==undefined)assert(value.length>=schema.minItems,path);
+    if(schema.maxItems!==undefined)assert(value.length<=schema.maxItems,path);
+    for(let i=0;i<value.length;i++)assertGeneratedShape(value[i],schema.items,`${path}[${i}]`);
+  }else if(schema.type==='string'){
+    assert(typeof value==='string',path);
+    const length=codePointLength(value);
+    if(schema.minLength!==undefined)assert(length>=schema.minLength,path);
+    if(schema.maxLength!==undefined)assert(length<=schema.maxLength,path);
+  }else throw new ContractError(`Unsupported generated schema at ${path}`);
+}
+
 /**
  * AI has a deliberately small JSON schema; an editable document does not.
  * Never silently truncate text when switching from generated to editable data.
  * `forAI` validates the generated output independently of the editor model.
  */
 export function normalizeNote(raw,{forAI=false}={}) {
+  if(forAI)assertGeneratedShape(raw,NOTE_SCHEMA);
   assert(isRecord(raw), 'root');
   assert(typeof raw.title === 'string' && raw.title.trim().length > 0, 'title');
   assert(Array.isArray(raw.cues) && raw.cues.length <= (forAI ? 12 : 100), 'cues');
