@@ -31,36 +31,46 @@ export const NOTE_SCHEMA = {
 };
 
 const isRecord = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-const clean = (v,max) => typeof v === 'string'
-  ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0,max)
+const clean = (v, trim=true) => typeof v === 'string'
+  ? (trim ? v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim()
+    : v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ''))
   : '';
 const assert = (ok, field) => { if (!ok) throw new ContractError(`Invalid note structure: ${field}`); };
 export class ContractError extends Error { constructor(message){ super(message); this.name='ContractError'; } }
 
-export function normalizeNote(raw) {
+/**
+ * AI has a deliberately small JSON schema; an editable document does not.
+ * Never silently truncate text when switching from generated to editable data.
+ * `forAI` validates the generated output independently of the editor model.
+ */
+export function normalizeNote(raw,{forAI=false}={}) {
   assert(isRecord(raw), 'root');
   assert(typeof raw.title === 'string' && raw.title.trim().length > 0, 'title');
-  assert(Array.isArray(raw.cues) && raw.cues.length <= 12, 'cues');
-  assert(Array.isArray(raw.sections) && raw.sections.length > 0 && raw.sections.length <= 14, 'sections');
+  assert(Array.isArray(raw.cues) && raw.cues.length <= (forAI ? 12 : 100), 'cues');
+  assert(Array.isArray(raw.sections) && raw.sections.length > 0 && raw.sections.length <= (forAI ? 14 : 200), 'sections');
   assert(typeof raw.summary === 'string' && raw.summary.trim().length > 0, 'summary');
+  const bound=(s,max,field)=>{if(forAI)assert(s.length<=max,field);return s;};
   const cues=raw.cues.map((cue,i)=>{
     assert(isRecord(cue) && typeof cue.keyword==='string' && typeof cue.note==='string',`cues[${i}]`);
-    return { keyword:clean(cue.keyword,45), note:clean(cue.note,200) };
-  }).filter(c=>c.keyword);
+    const keyword=bound(clean(cue.keyword),45,`cues[${i}].keyword`);
+    const note=bound(clean(cue.note),200,`cues[${i}].note`);
+    assert(keyword.length>0,`cues[${i}].keyword`);
+    return {keyword,note};
+  });
   const sections=raw.sections.map((section,i)=>{
     assert(isRecord(section) && typeof section.content==='string' && section.content.trim(),`sections[${i}]`);
     assert(Array.isArray(section.highlights) && section.highlights.length<=8 && section.highlights.every(v=>typeof v==='string'),`sections[${i}].highlights`);
-    const content=clean(section.content,1600);
+    const content=bound(clean(section.content,false),1600,`sections[${i}].content`);
+    const heading=bound(clean(section.heading),90,`sections[${i}].heading`);
     return {
-      heading:clean(section.heading,90),
-      content,
-      // Highlight only exact text that actually occurs; never trust the model's arbitrary markup.
-      highlights:[...new Set(section.highlights.map(v=>clean(v,70)).filter(v=>v && content.includes(v)))].slice(0,8)
+      heading,content,
+      // Only actual substrings can be highlighted; model content is never HTML.
+      highlights:[...new Set(section.highlights.map((v,j)=>bound(clean(v),70,`sections[${i}].highlights[${j}]`)).filter(v=>v && content.includes(v)))]
     };
   });
-  const note={title:clean(raw.title,110),date:clean(raw.date,40),cues,sections,
-    summary:clean(raw.summary,700), doodlePrompt:clean(raw.doodlePrompt,180)};
-  assert(note.title.length>0 && note.summary.length>0, 'empty required fields');
+  const note={title:bound(clean(raw.title),110,'title'),date:bound(clean(raw.date),40,'date'),cues,sections,
+    summary:bound(clean(raw.summary,false),700,'summary'), doodlePrompt:bound(clean(raw.doodlePrompt),180,'doodlePrompt')};
+  assert(note.title.length>0 && note.summary.trim().length>0,'empty required fields');
   return note;
 }
 

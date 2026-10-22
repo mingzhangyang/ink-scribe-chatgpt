@@ -11,6 +11,17 @@
 - Worker 输入校验、请求体大小限制、部署级限流绑定、AI 超时和错误规范、模型输出校验及仅记录指标的日志。
 - 用户原始内容默认不保存到任何应用数据库或浏览器本地持久化存储。**使用 AI 时，原文会发送至 Cloudflare Workers AI 进行推理。**
 
+## Acceptance fixes (2026-10-22)
+
+- Local formatting keeps all source characters in the editable body; it no longer treats the first line as disposable metadata. Long content is split into full sections and paginated, never silently sliced. The AI input limit remains 8,000 characters; local-only formatting allows up to 30,000 and returns a visible error beyond that.
+- Manual editing is not constrained by the generated AI schema. Model output is validated strictly against the limited JSON Schema; oversized model fields are rejected, never truncated.
+- Stale AI requests are invalidated and aborted when the source or document changes. A late result cannot erase a newer note or sticker edits.
+- Every layout preserves keyword descriptions; classic Cornell now has its own dedicated full-width summary band. Multi-page exports and clipboard images freeze a complete document/settings/layout snapshot before async encoding.
+- Mobile swipe-to-scroll works on empty paper, touch dragging still works when a gesture starts on a sticker, and mobile inputs use 16px text to avoid Safari auto-zoom.
+- `GLM-4.7 Flash` uses `chat_template_kwargs.enable_thinking=false` when the dedicated config option is enabled. Small real-account samples returned valid JSON in roughly 16-19 seconds, but the model still requires broader quality/cost/error-rate benchmarking and deployed Worker tests.
+
+`npm run check` covers code syntax, contracts, layout, exports, generation lifecycle and Worker API behavior. Browser QA additionally checked Chromium desktop/mobile, sticker gestures, long-content page navigation and export consistency; native iOS Safari and production HTTPS remain unverified.
+
 ## 启动与验证
 
 运行环境：Node.js **22+**。
@@ -45,6 +56,7 @@ npx wrangler@latest deploy
 | --- | --- | --- |
 | `AI_MODEL` | `@cf/zai-org/glm-4.7-flash` | Workers AI 文本模型，可配置切换 |
 | `AI_MAX_TOKENS` | `1700` | 生成输出上限（Worker 将其钳制为 400~2600） |
+| `AI_DISABLE_THINKING` | `true` | Disable GLM-4.7 Flash reasoning to save time and tokens (not applied to other models) |
 | `AI_TIMEOUT_MS` | `45000` | API 等待时限（Worker 钳制为 5~45 秒） |
 
 **注意**：模型能力、可用套餐、JSON 模式支持、中文质量与费用会变化。当前默认模型已通过 Cloudflare 实际账户的基本 JSON 结构试跑，但尚未进行完整中英质量、延迟、成本基准，不能作为已验证最佳模型。生产启用前核实 [Cloudflare 模型目录](https://developers.cloudflare.com/workers-ai/models/) 和 [定价](https://developers.cloudflare.com/workers-ai/platform/pricing/)，完成中英混合素材的端到端试跑。

@@ -80,3 +80,36 @@ test('model JSON parser accepts fenced response and rejects arbitrary strings',(
   assert.equal(parseModelResponse({response:'```json\n'+JSON.stringify(EXAMPLE)+'\n```'}).title,EXAMPLE.title);
   assert.throws(()=>parseModelResponse('just a story'));
 });
+
+test('configured GLM inference disables reasoning without leaking settings to other models',async()=>{
+  let input;
+  const ai={run:async(m,args)=>{input={model:m,args};return {choices:[{finish_reason:'stop',message:{content:JSON.stringify(EXAMPLE)}}]};}};
+  const result=await handleRequest(req(),env({AI:ai,AI_DISABLE_THINKING:'true'}));
+  assert.equal(result.status,200);
+  assert.deepEqual(input.args.chat_template_kwargs,{enable_thinking:false});
+  const other=await handleRequest(req(),env({AI:ai,AI_DISABLE_THINKING:'true',AI_MODEL:'@cf/meta/llama-3.3-70b-instruct-fp8-fast'}));
+  assert.equal(other.status,200);
+  assert.equal(input.args.chat_template_kwargs,undefined);
+});
+
+test('cut-off generations and oversized model data never enter the note',async()=>{
+  const oversized={...EXAMPLE,sections:[{content:'x'.repeat(1601),highlights:[]}]};
+  let count=0;
+  const response=await handleRequest(req(),env({AI:{run:async()=>{
+    count++;
+    return {choices:[{finish_reason:count===1?'length':'stop',message:{content:JSON.stringify(oversized)}}]};
+  }}}));
+  assert.deepEqual(await errorCode(response),[502,'AI_OUTPUT_INVALID']);
+  assert.equal(count,2);
+});
+
+test('repeated model summary is not published as a finished note',()=>{
+  const repeated='No launch date has been agreed. '.repeat(5).trim();
+  const o={...EXAMPLE,summary:repeated};
+  assert.throws(()=>parseModelResponse({choices:[{finish_reason:'stop',message:{content:JSON.stringify(o)}}]}),ContractError);
+});
+
+test('native object envelopes undergo the same summary quality checks',()=>{
+  const o={...EXAMPLE,summary:'Sentence that keeps repeating. '.repeat(4)};
+  assert.throws(()=>parseModelResponse({response:o}),ContractError);
+});

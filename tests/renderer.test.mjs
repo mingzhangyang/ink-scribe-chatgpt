@@ -31,7 +31,9 @@ test('summary lines spill into continuation pages rather than truncation',()=>{
 test('many long cue descriptions paginate without skipping entries',()=>{
   const note={...EXAMPLE,cues:Array.from({length:12},(_,i)=>({keyword:`知识 ${i}`,note:'每天需要反复记录，解释关键点。'.repeat(8)})),sections:[{heading:'说明',content:'笔记内容',highlights:[]}],summary:'总结'};
   const plan=planPages(ctx,note,defaultSettings());
-  assert.equal(plan.cuePages.flat().length,12);assert.ok(plan.cuePages.length>1);
+  assert.equal(plan.cuePages.flat().filter(x=>x.keyLines.length>0).length,12);
+  assert.equal(plan.cuePages.flat().flatMap(x=>x.noteLines).join(''),note.cues.map(x=>x.note).join(''));
+  assert.ok(plan.cuePages.length>1);
   assert.ok(plan.pages.length>=plan.cuePages.length);
 });
 test('sticker hit test honors page, scale, rotation and stacking',()=>{
@@ -40,4 +42,29 @@ test('sticker hit test honors page, scale, rotation and stacking',()=>{
     {id:'elsewhere',type:'star',x:300,y:400,page:1,rotation:0,scale:1}];
   assert.equal(hitSticker(items,0,110,100),'top');assert.equal(hitSticker(items,1,300,400),'elsewhere');
   assert.equal(hitSticker(items,0,700,800),null);
+});
+
+test('classic Cornell reserves a distinct, wide bottom summary band',()=>{
+  const hybrid=planPages(ctx,EXAMPLE,defaultSettings());
+  const classic=planPages(ctx,EXAMPLE,{...defaultSettings(),layout:'classic-cornell'});
+  assert.notDeepEqual(hybrid,classic);
+  assert.equal(classic.classic,true);
+  assert.equal(classic.pages.flatMap(p=>p.placements).filter(x=>x.kind==='summary').every(x=>x.wide&&x.y===873),true);
+  assert.equal(classic.pages.flatMap(p=>p.placements).filter(x=>x.kind==='body').every(x=>x.y<832),true);
+});
+
+test('cue text is accessible in all layouts, including minimal and journal',()=>{
+  const note={...EXAMPLE,cues:[{keyword:'KEYWORD_ONE',note:'DETAIL_ONLY_IN_CUE'},{keyword:'SECOND',note:'OTHER_FACT'}]};
+  for(const layout of ['hybrid-cornell','classic-cornell','free-journal','minimal']){
+    const plan=planPages(ctx,note,{...defaultSettings(),layout});
+    if(plan.side){
+      const text=plan.cuePages.flat().flatMap(c=>[...c.keyLines,...c.noteLines]).join('');
+      assert.match(text,/DETAIL_ONLY_IN_CUE/,layout);
+      assert.match(text,/OTHER_FACT/,layout);
+    }else{
+      const text=plan.pages.flatMap(p=>p.placements.filter(x=>x.kind==='cue-body').map(x=>x.text)).join('');
+      assert.match(text,/DETAIL_ONLY_IN_CUE/,layout);
+      assert.match(text,/OTHER_FACT/,layout);
+    }
+  }
 });

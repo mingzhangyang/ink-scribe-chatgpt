@@ -41,3 +41,28 @@ test('offline text formatting stays explicitly non-AI and keeps facts',() => {
   assert.match(n.summary,/未进行 AI/);
   assert.throws(()=>formatOffline(''),/请先输入/);
 });
+
+test('local-only formatting retains the complete source, including long first lines',()=>{
+  const first='A'.repeat(90)+'FIRST_LINE_TAIL';
+  const input=first+'\n'+('B'.repeat(1900))+'LONG_PARAGRAPH_TAIL';
+  const result=normalizeNote(formatOffline(input));
+  assert.equal(result.sections.map(s=>s.content).join(''),input);
+  assert.equal(result.sections.at(-1).content.endsWith('LONG_PARAGRAPH_TAIL'),true);
+  assert.ok(result.sections.every(s=>s.content.length<=1300));
+  assert.ok(result.sections.length>=2);
+});
+
+test('editor normalization never silently crops longer body, cue, or summary',()=>{
+  const body='a'.repeat(1800)+'EDITOR_TAIL';
+  const extra='b'.repeat(900)+'SUMMARY_TAIL';
+  const note=normalizeNote({title:'hello',cues:[{keyword:'keyword',note:extra}],sections:[{content:body,highlights:[]}],summary:extra});
+  assert.equal(note.sections[0].content,body);
+  assert.equal(note.summary,extra);
+  assert.equal(note.cues[0].note,extra);
+  assert.throws(()=>normalizeNote(note,{forAI:true}),ContractError);
+});
+
+test('a model cannot silently replace oversized content with truncated data',()=>{
+  const note={title:'short',cues:[],sections:[{heading:'',content:'x'.repeat(1601),highlights:[]}],summary:'short'};
+  assert.throws(()=>normalizeNote(note,{forAI:true}),/sections\[0\].content/);
+});
