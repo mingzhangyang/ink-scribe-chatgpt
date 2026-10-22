@@ -1,0 +1,15 @@
+{
+  "name": "inkscribe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "墨语笔记 — AI-assisted handwritten notes on Cloudflare Workers",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs && npm test",
+    "deploy": "npx wrangler@latest deploy",
+    "deploy:dry-run": "npx wrangler@latest deploy --dry-run"
+  }
+}

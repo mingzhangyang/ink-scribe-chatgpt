@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#191a1d" />
+  <meta name="description" content="墨语笔记 InkScribe — 将散乱文字整理成有温度的手写视觉笔记。" />
+  <meta name="robots" content="index,follow" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <title>墨语笔记 InkScribe · 把想法写成一页风景</title>
+  <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <div><div class="brand-name">墨语笔记 <span>INKSCRIBE</span></div><p>让思考留下笔迹</p></div>
+      </div>
+      <div class="header-actions"><span class="header-note">A LITTLE SPACE FOR THOUGHTS</span><button id="new-note" class="button button-ghost button-sm" type="button">＋ 新建</button><button id="header-export" class="button button-primary button-sm" type="button">导出作品 ↗</button></div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel source-panel" aria-labelledby="source-heading">
+        <div class="panel-header"><div class="eyebrow">01 / THE SOURCE</div><h1 id="source-heading">写下你的灵感<span class="heading-star">✳</span></h1><p>一段文字，一页有温度的手写笔记。</p></div>
+        <div class="panel-body source-content">
+          <label for="source-template" class="field-label">笔记类型 <span>TYPE</span></label>
+          <select id="source-template" class="field-input"><option value="reading-notes">📖 读书摘抄</option><option value="course-summary">✎ 课程总结</option><option value="meeting-minutes">☷ 会议纪要</option><option value="thoughts">☼ 思想碎片</option></select>
+          <div class="input-meta"><label for="source-text" class="field-label">原始文本 <span>YOUR WORDS</span></label><span id="char-count" class="counter">0 / 8000</span></div>
+          <textarea id="source-text" class="source-textarea" maxlength="8000" spellcheck="true" placeholder="从这里开始，粘贴一篇文章、一段课程笔记，或一闪而过的想法…&#10;&#10;AI 会替你梳理线索、突出要点，再把它们铺展在纸上。"></textarea>
+          <div class="source-toolbar"><label for="source-language">输出语言</label><select id="source-language" class="select-mini"><option value="auto">跟随原文</option><option value="zh">简体中文</option><option value="en">English</option></select></div>
+          <button id="generate" type="button" class="button button-primary button-wide"><span>✦</span> <span id="generate-label">AI 转化为手写笔记</span><span class="button-arrow">↗</span></button>
+          <div class="source-alt"><button id="offline" class="link-button" type="button">只排版，不调用 AI</button><span>或</span><button id="load-example" class="link-button" type="button">载入示例</button></div>
+          <div class="privacy-note"><span class="privacy-icon" aria-hidden="true">♧</span><span>默认不上传图片、不保存原文；使用 AI 时，仅将输入文本发送给 Cloudflare Workers AI。当前编辑内容只保存在此页面内存中。</span></div>
+        </div>
+      </section>
+
+      <section class="studio-panel" aria-labelledby="studio-heading">
+        <div class="studio-top"><div><div class="eyebrow">02 / LIVE PREVIEW</div><h2 id="studio-heading">纸上的故事 <span class="hand-scribble">↝</span></h2></div><div class="preview-state"><span class="status-dot"></span><span id="preview-mode">示例作品</span></div></div>
+        <div class="canvas-stage"><div class="paper-wrap"><canvas id="note-canvas" width="820" height="1160" aria-label="笔记页面预览；可拖动贴纸调整位置" tabindex="0"></canvas></div></div>
+        <div class="canvas-toolbar"><div class="page-controls"><button id="prev-page" class="icon-button" aria-label="上一页" title="上一页" type="button">‹</button><span id="page-counter" class="page-count">01 / 01</span><button id="next-page" class="icon-button" aria-label="下一页" title="下一页" type="button">›</button></div><span class="toolbar-hint">✦ 所见即所得 · 画布与导出同源</span><div class="zoom-group"><span id="page-label">A4 比例</span></div></div>
+      </section>
+
+      <section class="panel design-panel" aria-labelledby="design-heading">
+        <div class="panel-header"><div class="eyebrow">03 / THE FINISHING TOUCH</div><h2 id="design-heading">给纸张一点性格 <span class="heading-star">✶</span></h2><p>纸张、笔触和装饰，都由你决定。</p></div>
+        <div class="panel-body design-content">
+          <div class="controls-section"><div class="control-heading"><label for="layout">排版方式</label><span>LAYOUT</span></div><select id="layout" class="field-input"><option value="hybrid-cornell">混合康奈尔 · 手账</option><option value="classic-cornell">经典康奈尔</option><option value="free-journal">自由手账</option><option value="minimal">简约手札</option></select></div>
+          <div class="controls-section"><div class="control-heading"><span>纸张纹理</span><span>PAPER</span></div><div id="papers" class="paper-options" role="group" aria-label="选择纸张"></div></div>
+          <div class="controls-section"><div class="control-heading"><span>墨水色彩</span><span>INK</span></div><div id="inks" class="ink-options" role="group" aria-label="选择墨水"></div></div>
+          <div class="controls-section"><div class="control-heading"><label for="font">手写字体</label><span>TYPOGRAPHY</span></div><select id="font" class="field-input"><option value="graceful">清雅楷体 · Graceful</option><option value="journal">随笔手账 · Journal</option><option value="classic">经典书卷 · Classic</option></select><div class="range-control"><label for="font-size">字号 <output id="font-size-value">25px</output></label><input id="font-size" type="range" min="19" max="32" step="1" value="25" /></div><div class="range-control"><label for="line-height">行距 <output id="line-height-value">1.65×</output></label><input id="line-height" type="range" min="1.3" max="2.1" step="0.05" value="1.65" /></div></div>
+          <div class="controls-section"><div class="control-heading"><span>贴纸与小涂鸦</span><span>STICKERS</span></div><div id="stickers" class="sticker-options" role="group" aria-label="添加贴纸"></div><p class="microcopy">点击加入当前页，随后在纸上拖动。</p><div id="sticker-tools" class="sticker-tools" hidden><div class="selected-caption">已选中贴纸 <span id="selected-type"></span></div><div class="range-control"><label for="sticker-scale">大小 <output id="sticker-scale-value">100%</output></label><input id="sticker-scale" type="range" min="35" max="250" value="100" /></div><div class="range-control"><label for="sticker-rotation">旋转 <output id="sticker-rotation-value">0°</output></label><input id="sticker-rotation" type="range" min="-180" max="180" value="0" /></div><div class="sticker-actions"><button id="bring-forward" class="button button-muted button-sm" type="button">移至最上层</button><button id="delete-sticker" class="button button-quiet button-sm" type="button">删除</button></div></div></div>
+          <details class="text-editor"><summary>✎ 微调笔记内容 <span>EDIT</span></summary><div class="editor-fields" id="editor-fields"></div></details>
+          <div class="export-section"><div class="control-heading"><span>保存你的作品</span><span>EXPORT</span></div><div class="export-options"><label for="export-format">格式 <select id="export-format" class="select-mini"><option value="png">PNG</option><option value="jpeg">JPG</option></select></label><label for="export-scale">清晰度 <select id="export-scale" class="select-mini"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label></div><button id="export" class="button button-primary button-wide" type="button">⇩ 下载笔记图片</button><button id="copy" class="button button-outline button-wide" type="button">▢ 复制当前页图片</button><p class="microcopy">多页作品自动打包 ZIP；剪贴板不可用时请下载图片。</p></div>
+        </div>
+      </section>
+    </main>
+    <footer class="app-footer"><span>© 2026 INKSCRIBE STUDIO</span><span>MAKE SPACE FOR WHAT MATTERS · 用手写的温度收藏每一个想法</span><span>CRAFTED WITH ✦ & CARE</span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>
