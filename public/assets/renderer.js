@@ -23,6 +23,30 @@ const bodyStyle = settings => `${settings.fontSize||25}px ${FONT_STACKS[settings
 const titleStyle = settings => `bold 46px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
 const measure=(ctx,string,font)=>{ctx.font=font;return ctx.measureText(string).width;};
 
+/** Fit only the painted heading; the editor retains the full original title.
+ * Exponential bracketing + binary search avoids measuring arbitrarily long
+ * strings when the visible heading can only hold a short prefix.
+ */
+export function fitTitle(ctx,title,font,maxWidth){
+  const full=String(title);
+  if(full.length<=128 && measure(ctx,full,font)<=maxWidth)return full;
+  const chars=Array.from(full); // Never cut UTF-16 surrogate pairs in half.
+  const fits=count=>measure(ctx,chars.slice(0,count).join('')+'…',font)<=maxWidth;
+  let low=0,high=1;
+  while(high<chars.length && fits(high)){
+    low=high;
+    high=Math.min(high*2,chars.length);
+  }
+  // A long but unusually narrow title could still fit in full.
+  if(high===chars.length && measure(ctx,full,font)<=maxWidth)return full;
+  while(low<high){
+    const mid=Math.ceil((low+high)/2);
+    if(fits(mid))low=mid;
+    else high=mid-1;
+  }
+  return chars.slice(0,low).join('')+'…';
+}
+
 /** Keep Unicode code points intact (including emoji), and respect authored newlines. */
 export function wrapText(ctx,text,width,font){
   const output=[]; const paragraphs=String(text??'').replace(/\r/g,'').split('\n');
@@ -49,30 +73,66 @@ export function wrapText(ctx,text,width,font){
 export function planPages(ctx,note,settings){
   const layout=settings.layout||'hybrid-cornell';
   const side=['hybrid-cornell','classic-cornell'].includes(layout);
+  const classic=layout==='classic-cornell';
   const mainX=side?307:92;
   const mainWidth=side?438:635;
+  const bodyBottom=classic?832:PAGE.bottom;
   const lineHeight=density(settings);
   const font=bodyStyle(settings);
+  const hasText=text=>String(text??'').trim().length>0;
+  // Empty editable cue fields are not paragraphs and must not reserve lines.
+  // Keep wrapText's authored blank lines for genuinely nonempty descriptions.
+  const wrapCue=(text,width,font)=>hasText(text)?wrapText(ctx,text,width,font):[];
+  const cues=(note.cues||[]).filter(cue=>hasText(cue.keyword)||hasText(cue.note));
   const pages=[{placements:[],index:0}];
   let page=pages[0],y=layout==='free-journal'?255:PAGE.top;
   const next=()=>{page={placements:[],index:pages.length};pages.push(page);y=PAGE.top;};
-  const ensure=(height)=>{if(y+height>PAGE.bottom && y>PAGE.top+6)next();};
+  const ensure=(height)=>{if(y+height>bodyBottom && page.placements.length>0)next();};
   const add=(entry,height)=>{ensure(height);page.placements.push({...entry,y});y+=height;};
+  // Spacing does not own a page: only the next real content may advance it.
+  const gap=height=>{y+=height;};
+  // Decorations belong to existing content, never to a new overflow page.
+  const decorate=(entry,height)=>{
+    if(page.placements.length>0 && y+height<=bodyBottom){
+      page.placements.push({...entry,y});y+=height;
+    }
+  };
+
+  // Free and minimal layouts preserve each cue AND its description as real lines.
+  // No decorative chips or fixed item slices stand in for the full cue content.
+  if(!side && cues.length){
+    add({kind:'cues-header'},37);
+    const cueFont=`18px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
+    for(const cue of cues){
+      const text=[cue.keyword,cue.note].filter(hasText).join('  /  ');
+      for(const line of wrapText(ctx,text,mainWidth-22,cueFont))add({kind:'cue-body',text:line},28);
+      gap(11);
+    }
+    decorate({kind:'cue-divider'},12);
+  }
   for(const [sectionIndex,section] of note.sections.entries()){
     if(section.heading){
       const headings=wrapText(ctx,section.heading,mainWidth-15,'bold 26px '+(FONT_STACKS[settings.font]||FONT_STACKS.graceful));
       ensure(headings.length*37+lineHeight*2);
       for(const line of headings)add({kind:'heading',text:line,sectionIndex},36);
-    }else if(sectionIndex!==0)add({kind:'separator'},18);
+    }else if(sectionIndex!==0)decorate({kind:'separator'},18);
     const lines=wrapText(ctx,section.content,mainWidth,font);
     for(const line of lines)add({kind:'body',text:line,highlights:section.highlights||[],sectionIndex},lineHeight);
-    add({kind:'section-gap'},20);
+    // Classic Cornell's summary has its own reserved band, not body spacing.
+    if(!classic || sectionIndex<note.sections.length-1)gap(20);
   }
-  // Summary is paginated at line boundaries instead of overlapping content or truncating it.
   const summaryFont=`${Math.max(19,(settings.fontSize||25)-2)}px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
-  const summaryLines=wrapText(ctx,note.summary,mainWidth-44,summaryFont);
+  const summaryLines=wrapText(ctx,note.summary,classic?590:mainWidth-44,summaryFont);
   let offset=0;
   while(offset<summaryLines.length){
+    if(classic){
+      // Reserve a real full-width bottom summary band in classic Cornell.
+      const take=Math.min(3,summaryLines.length-offset);
+      if(offset)next();
+      page.placements.push({kind:'summary',lines:summaryLines.slice(offset,offset+take),continued:offset>0,wide:true,y:873});
+      offset+=take;
+      continue;
+    }
     const room=PAGE.bottom-y;
     if(room<90){next();continue;}
     const take=Math.max(1,Math.min(summaryLines.length-offset,Math.floor((room-60)/29)));
@@ -80,21 +140,31 @@ export function planPages(ctx,note,settings){
     add({kind:'summary',lines,continued:offset>0},60+lines.length*29);
     offset+=take;
   }
-  // Independently paginate every cue; descriptions are never thrown away by a fixed 6-item slice.
+
   const cuePages=[];
   if(side){
+    const cueBottom=classic?820:1005;
     let cuePage=[],cursor=270;
-    for(const cue of note.cues||[]){
-      const keyLines=wrapText(ctx,cue.keyword,168,`bold 21px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
-      const noteLines=wrapText(ctx,cue.note,169,`16px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
-      const item={keyLines,noteLines};const height=keyLines.length*27+noteLines.length*25+38;
-      if(cursor+height>1005 && cuePage.length){cuePages.push(cuePage);cuePage=[];cursor=270;}
-      cuePage.push(item);cursor+=height;
+    const pushPage=()=>{cuePages.push(cuePage);cuePage=[];cursor=270;};
+    for(const cue of cues){
+      const keyLines=wrapCue(cue.keyword,168,`bold 21px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
+      const noteLines=wrapCue(cue.note,169,`16px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
+      let item={keyLines:[],noteLines:[]},height=0;
+      const flush=()=>{if(height){cuePage.push(item);cursor+=height+38;item={keyLines:[],noteLines:[]};height=0;}};
+      for(const [type,lines,step] of [['keyLines',keyLines,27],['noteLines',noteLines,25]]){
+        for(const line of lines){
+          if(cursor+height+step+38>cueBottom && (cursor>270 || height)){
+            flush();pushPage();
+          }
+          item[type].push(line);height+=step;
+        }
+      }
+      flush();
     }
     cuePages.push(cuePage);
     while(pages.length<cuePages.length)next();
   }
-  return {pages,side,mainX,mainWidth,cuePages};
+  return {pages,side,classic,mainX,mainWidth,cuePages};
 }
 
 function fillPaper(ctx,s){
@@ -130,11 +200,7 @@ function drawHeader(ctx,note,s,pageNumber,total,layout){
   ctx.textAlign='right';ctx.fillText(note.date||new Date().toLocaleDateString('en-CA'),748,66);ctx.textAlign='left';
   ctx.strokeStyle='rgba(111,91,66,.42)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(68,83);ctx.lineTo(752,83);ctx.stroke();
   ctx.fillStyle=INKS[s.ink]||INKS.black;ctx.font=titleStyle(s);
-  let title=String(note.title||'未命名笔记');
-  if(measure(ctx,title,titleStyle(s))>680){
-    const chars=Array.from(title);while(chars.length>1 && measure(ctx,chars.join('')+'…',titleStyle(s))>680)chars.pop();
-    title=chars.join('')+'…';
-  }
+  const title=fitTitle(ctx,note.title||'未命名笔记',titleStyle(s),680);
   ctx.fillText(title,68,147);
   ctx.fillStyle='#a3764e';ctx.fillRect(68,167,42,4);
   label(ctx,layout==='classic-cornell'?'CORNELL NOTES':layout==='free-journal'?'FREE JOURNAL':layout==='minimal'?'STUDY NOTES':'LEARNING JOURNAL',126,173,s,'rgba(103,81,59,.62)');
@@ -142,9 +208,9 @@ function drawHeader(ctx,note,s,pageNumber,total,layout){
   label(ctx,'整理知识，留下笔迹。',68,1103,s,'rgba(115,92,67,.62)');
   ctx.textAlign='right';label(ctx,`${String(pageNumber+1).padStart(2,'0')} / ${String(total).padStart(2,'0')}`,752,1103,s,'rgba(115,92,67,.62)');ctx.textAlign='left';
 }
-function drawCues(ctx,s,items){
-  ctx.fillStyle='rgba(125,96,69,.065)';ctx.fillRect(69,209,212,813);
-  ctx.strokeStyle='rgba(124,94,60,.24)';ctx.beginPath();ctx.moveTo(284,209);ctx.lineTo(284,1020);ctx.stroke();
+function drawCues(ctx,s,items,classic=false){
+  ctx.fillStyle='rgba(125,96,69,.065)';ctx.fillRect(69,209,212,classic?625:813);
+  ctx.strokeStyle='rgba(124,94,60,.24)';ctx.beginPath();ctx.moveTo(284,209);ctx.lineTo(284,classic?834:1020);ctx.stroke();
   label(ctx,'KEY WORDS  /  关键词',85,235,s,'rgba(134,99,64,.80)');
   let y=271;
   for(const {keyLines,noteLines} of items||[]){
@@ -173,8 +239,8 @@ function drawBodyLine(ctx,text,x,y,highlights,s){
   ctx.fillStyle=ink;ctx.fillText(visible,x,y);
 }
 function rounded(ctx,x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);}
-function drawSummary(ctx,lines,s,y,side,continued){
-  const x=side?307:92,w=side?438:635;
+function drawSummary(ctx,lines,s,y,side,continued,wide=false){
+  const x=side&&!wide?307:92,w=side&&!wide?438:635;
   const font=`${Math.max(19,(s.fontSize||25)-2)}px ${FONT_STACKS[s.font]||FONT_STACKS.graceful}`;
   const height=60+lines.length*29;
   rounded(ctx,x,y,w,height-11,10);ctx.fillStyle='rgba(229,192,130,.21)';ctx.fill();
@@ -229,14 +295,9 @@ export function paintPage(canvas,plan,note,settings,pageIndex,{scale=1,selected=
   ctx.textBaseline='alphabetic';fillPaper(ctx,settings);
   const page=plan.pages[pageIndex],layout=settings.layout||'hybrid-cornell';
   drawHeader(ctx,note,settings,pageIndex,plan.pages.length,layout);drawSmallDoodle(ctx,settings,pageIndex);
-  if(plan.side)drawCues(ctx,settings,plan.cuePages[pageIndex]);
-  else if(pageIndex===0 && layout==='free-journal'){
-    ctx.font='16px ui-sans-serif,system-ui,sans-serif';let x=94;
-    for(const cue of note.cues.slice(0,6)){
-      const keyword=cue.keyword.slice(0,10);const w=Math.min(128,ctx.measureText(keyword).width+29);
-      if(x+w>730)break;
-      rounded(ctx,x,192,w,28,12);ctx.fillStyle='rgba(147,117,85,.12)';ctx.fill();ctx.fillStyle='#8f6b46';ctx.fillText(keyword,x+12,211);x+=w+8;
-    }
+  if(plan.side)drawCues(ctx,settings,plan.cuePages[pageIndex],plan.classic);
+  if(plan.classic){
+    ctx.strokeStyle='rgba(111,91,66,.31)';ctx.beginPath();ctx.moveTo(69,850);ctx.lineTo(751,850);ctx.stroke();
   }
   const font=bodyStyle(settings),ink=INKS[settings.ink]||INKS.black;
   for(const placement of page.placements){
@@ -247,7 +308,15 @@ export function paintPage(canvas,plan,note,settings,pageIndex,{scale=1,selected=
       ctx.fillText(placement.text,x+15,y+25);
     }
     if(placement.kind==='body')drawBodyLine(ctx,placement.text,x,y+(settings.fontSize||25),placement.highlights,settings);
-    if(placement.kind==='summary')drawSummary(ctx,placement.lines,settings,y,plan.side,placement.continued);
+    if(placement.kind==='cues-header')label(ctx,layout==='minimal'?'KEY IDEAS / NOTES':'FIELD NOTES / KEY IDEAS',x,y+23,settings,'#98704f');
+    if(placement.kind==='cue-body'){
+      ctx.fillStyle=ink;ctx.font=`18px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
+      ctx.fillText(placement.text,x+12,y+21);
+    }
+    if(placement.kind==='cue-divider'){
+      ctx.strokeStyle='rgba(151,117,79,.3)';ctx.beginPath();ctx.moveTo(x,y+3);ctx.lineTo(x+plan.mainWidth,y+3);ctx.stroke();
+    }
+    if(placement.kind==='summary')drawSummary(ctx,placement.lines,settings,y,plan.side,placement.continued,placement.wide);
   }
   for(const item of (settings.stickers||[]).filter(it=>it.page===pageIndex))paintSticker(ctx,item,selected===item.id);
   return canvas;

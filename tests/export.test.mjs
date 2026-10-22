@@ -22,3 +22,16 @@ test('ZIP central directory and file entries match bytes',async()=>{
   assert.equal(view.getUint32(buffer.byteLength-22,true),0x06054b50);
   assert.equal(view.getUint16(buffer.byteLength-22+10,true),2);
 });
+
+test('export snapshot is immune to subsequent edits to nested settings and note',async()=>{
+  const {snapshotDocument}=await import('../public/assets/export.js');
+  const plan={pages:[{placements:[{kind:'body',text:'important'}]}]};
+  const note={title:'before',sections:[{content:'facts'}]};
+  const settings={paper:'ivory',stickers:[{x:120}]};
+  const frozen=snapshotDocument(plan,note,settings);
+  settings.paper='kraft';settings.stickers[0].x=500;note.title='after';plan.pages[0].placements[0].text='changed';
+  assert.equal(frozen.settings.paper,'ivory');
+  assert.equal(frozen.settings.stickers[0].x,120);
+  assert.equal(frozen.note.title,'before');
+  assert.equal(frozen.plan.pages[0].placements[0].text,'important');
+});

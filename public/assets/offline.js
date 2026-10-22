@@ -1,17 +1,32 @@
-/** Explicit, non-AI formatting, useful for privacy-sensitive work and a demo. */
+/** Purely local formatting. Every character stays in the editable note body. */
 export function formatOffline(text,template='reading-notes'){
-  const raw=String(text||'').trim();if(!raw)throw new Error('请先输入文本');
-  const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
-  const title=lines[0].replace(/^[#*\d.\-\s]+/,'').slice(0,55)||'我的笔记';
-  const paragraphs=lines.length>1?lines.slice(1):raw.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
-  const groups=[];
-  let group=[];
-  for(const item of paragraphs){
-    if(group.join('').length+item.length>580 && group.length){groups.push(group.join('\n'));group=[];}
-    group.push(item);
+  const raw=String(text??'').replace(/\r\n/g,'\n');
+  if(!raw.trim())throw new Error('请先输入文本');
+  if([...raw].length>30000)throw new Error('The local editor supports at most 30,000 characters per document. Please shorten the input before continuing.');
+  const first=raw.split('\n').find(x=>x.trim())||'';
+  const title=Array.from(first.replace(/^[#*\d.\-\s]+/,'').trim()).slice(0,55).join('')||'InkScribe';
+  const chars=Array.from(raw),sections=[];
+  let cursor=0,leadingWhitespace='';
+  while(cursor<chars.length){
+    let end=Math.min(cursor+1300,chars.length);
+    // Prefer paragraph boundaries, but split long single paragraphs as well.
+    if(end<chars.length){
+      for(let i=end;i>cursor+850;i--){if(chars[i-1]==='\n'){end=i;break;}}
+    }
+    const chunk=chars.slice(cursor,end).join('');
+    // The note contract disallows blank sections. Attach all whitespace to a
+    // neighboring substantive section instead of dropping or rejecting it.
+    if(chunk.trim()){
+      sections.push({heading:sections.length===0?'\u6b63\u6587':`\u7eed\u7bc7 ${sections.length+1}`,
+        content:leadingWhitespace+chunk,highlights:[]});
+      leadingWhitespace='';
+    }else if(sections.length){
+      sections[sections.length-1].content+=chunk;
+    }else{
+      leadingWhitespace+=chunk;
+    }
+    cursor=end;
   }
-  if(group.length)groups.push(group.join('\n'));
-  const sections=(groups.length?groups:[raw]).map((content,i)=>({heading:i===0?'正文':`继续 · ${i+1}`,content,highlights:[]}));
   return {title,date:new Date().toISOString().slice(0,10),cues:[],sections,
     summary:template==='meeting-minutes'?'仅排版整理，尚未由 AI 提取会议结论。':'仅排版整理，未进行 AI 摘要或重点提取。',
     doodlePrompt:''};

@@ -21,18 +21,24 @@ const respond=(data,status=200,extra={})=>new Response(JSON.stringify(data),{sta
 function err(code,extra={}) { const [status,message]=errors[code]; return respond({error:{code,message}},status,extra); }
 
 export function parseModelResponse(value) {
-  // Workers AI bindings and its REST/OpenAI-compatible response surface differ
-  // across models. Accept actual assistant content, never private reasoning.
-  const raw = value?.response ?? value?.choices?.[0]?.message?.content ??
+  const finish=value?.choices?.[0]?.finish_reason ?? value?.result?.choices?.[0]?.finish_reason;
+  if(finish==='length') throw new ContractError('Model response was truncated');
+  // Read assistant content, not hidden reasoning; support both binding envelopes.
+  const raw=value?.response ?? value?.choices?.[0]?.message?.content ??
     value?.result?.response ?? value?.result?.choices?.[0]?.message?.content ??
     value?.output ?? value;
-  if(raw && typeof raw === 'object' && !Array.isArray(raw)) return normalizeNote(raw);
-  if(typeof raw!=='string') throw new ContractError('AI returned no assistant JSON');
-  const trimmed=raw.trim();
-  const json=trimmed.startsWith('```') ? trimmed.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'') : trimmed;
   let parsed;
-  try { parsed=JSON.parse(json); } catch { throw new ContractError('AI JSON parse failed'); }
-  return normalizeNote(parsed);
+  if(raw && typeof raw==='object' && !Array.isArray(raw)) parsed=raw;
+  else {
+    if(typeof raw!=='string') throw new ContractError('AI returned no assistant JSON');
+    const trimmed=raw.trim();
+    const json=trimmed.startsWith('```') ? trimmed.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'') : trimmed;
+    try {parsed=JSON.parse(json);}catch{throw new ContractError('AI JSON parse failed');}
+  }
+  const note=normalizeNote(parsed,{forAI:true});
+  // Reject pathological repetitions rather than publish a model decoding loop.
+  if(/(.{18,180})(?:\s*\1){2,}/u.test(note.summary)) throw new ContractError('Repeated summary');
+  return note;
 }
 
 const PROMPT=`你是严谨的学习笔记编辑，将输入材料整理成清晰的手写笔记结构。输出必须是 JSON，不含 Markdown。\n`+
@@ -98,6 +104,7 @@ export async function handleRequest(request,env={},ctx={}) {
   const model=typeof env.AI_MODEL==='string' && /^@cf\/[a-z0-9_-]+\/[a-z0-9._-]+$/i.test(env.AI_MODEL)
     ?env.AI_MODEL:'@cf/zai-org/glm-4.7-flash';
   const max_tokens=Math.min(2600,Math.max(400,Number(env.AI_MAX_TOKENS)||1700));
+  const disableThinking=env.AI_DISABLE_THINKING==='true' && model==='@cf/zai-org/glm-4.7-flash';
   const timeout=Math.min(45000,Math.max(5000,Number(env.AI_TIMEOUT_MS)||45000));
   const started=Date.now();
   let timedOut=false;
@@ -113,6 +120,7 @@ export async function handleRequest(request,env={},ctx={}) {
         result=await Promise.race([
           env.AI.run(model,{messages:[{role:'system',content:PROMPT},{role:'user',content:promptFor(body.data)}],
             max_tokens, temperature:0.25,
+            ...(disableThinking?{chat_template_kwargs:{enable_thinking:false}}:{}),
             response_format:{type:'json_schema',json_schema:{name:'NoteStructure',schema:NOTE_SCHEMA,strict:true}}}),
           new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;reject(new Error('AI timeout'));},remaining);})
         ]);
