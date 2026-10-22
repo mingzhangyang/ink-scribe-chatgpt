@@ -43,11 +43,11 @@ npx wrangler@latest deploy
 
 | 变量 | 默认 | 用途 |
 | --- | --- | --- |
-| `AI_MODEL` | `@cf/qwen/qwen3-30b-a3b-fp8` | Workers AI 文本模型，可配置切换 |
+| `AI_MODEL` | `@cf/zai-org/glm-4.7-flash` | Workers AI 文本模型，可配置切换 |
 | `AI_MAX_TOKENS` | `1700` | 生成输出上限（Worker 将其钳制为 400~2600） |
-| `AI_TIMEOUT_MS` | `25000` | API 等待时限（Worker 钳制为 5~45 秒） |
+| `AI_TIMEOUT_MS` | `45000` | API 等待时限（Worker 钳制为 5~45 秒） |
 
-**注意**：模型能力、可用套餐、JSON 模式支持、中文质量与费用会变化。当前默认模型仅是待测候选，未通过真实账户的性能/费用基准，不能作为已验证最佳模型。生产启用前核实 [Cloudflare 模型目录](https://developers.cloudflare.com/workers-ai/models/) 和 [定价](https://developers.cloudflare.com/workers-ai/platform/pricing/)，完成中英混合素材的端到端试跑。
+**注意**：模型能力、可用套餐、JSON 模式支持、中文质量与费用会变化。当前默认模型已通过 Cloudflare 实际账户的基本 JSON 结构试跑，但尚未进行完整中英质量、延迟、成本基准，不能作为已验证最佳模型。生产启用前核实 [Cloudflare 模型目录](https://developers.cloudflare.com/workers-ai/models/) 和 [定价](https://developers.cloudflare.com/workers-ai/platform/pricing/)，完成中英混合素材的端到端试跑。
 
 限流为 Cloudflare 原生 `ratelimits` binding：每边缘区域、每请求来源 IP 8 次/60 秒，**不是全局严格防刷**。正式公开发布需要结合账户 WAF/Turnstile、每日预算和用量告警，并避免敏感材料使用共享用户机器。
 

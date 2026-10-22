@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {handleRequest,parseModelResponse} from '../worker/router.js';
 import {EXAMPLE} from '../public/assets/offline.js';
+import {ContractError} from '../public/assets/contracts.js';
 const url='https://inkscribe.test/api/structure';
 const body={text:'叶子把光能变为化学能。',template:'reading-notes',language:'auto',style:'hybrid-cornell'};
 const req=(data=body,options={})=>new Request(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data),...options});
@@ -59,7 +60,23 @@ test('rate-limit provider errors mapped to stable code',async()=>{
   const response=await handleRequest(req(),env({AI:{run:async()=>{called++;throw Object.assign(new Error('rate limited'),{status:429});}}}));
   assert.deepEqual(await errorCode(response),[429,'RATE_LIMITED']);assert.equal(called,1);
 });
-test('model JSON parser accepts fenced response and rejects arbitrary strings',()=>{
+test('Workers AI OpenAI-compatible messages produce a note, not invalid JSON',async()=>{
+  let call;
+  const response=await handleRequest(req(),env({AI:{run:async(model,args)=>{
+    call={model,args};
+    return {choices:[{message:{role:'assistant',content:JSON.stringify(EXAMPLE),reasoning:null},finish_reason:'stop'}]};
+  }}}));
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).structure.title,EXAMPLE.title);
+  assert.equal(call.model,'@cf/zai-org/glm-4.7-flash');
+  assert.equal(call.args.response_format.type,'json_schema');
+  assert.equal(call.args.response_format.json_schema.name,'NoteStructure');
+  assert.equal(call.args.response_format.json_schema.schema.additionalProperties,false);
+});
+test('model reasoning without assistant content never becomes user-facing structure',()=>{
+  assert.throws(()=>parseModelResponse({choices:[{message:{role:'assistant',content:null,reasoning:JSON.stringify(EXAMPLE)}}]}),ContractError);
+});
+test('model JSON parser accepts fenced response and rejects arbitrary strings',()=>{ 
   assert.equal(parseModelResponse({response:'```json\n'+JSON.stringify(EXAMPLE)+'\n```'}).title,EXAMPLE.title);
   assert.throws(()=>parseModelResponse('just a story'));
 });

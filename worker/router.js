@@ -21,9 +21,13 @@ const respond=(data,status=200,extra={})=>new Response(JSON.stringify(data),{sta
 function err(code,extra={}) { const [status,message]=errors[code]; return respond({error:{code,message}},status,extra); }
 
 export function parseModelResponse(value) {
-  const raw = value?.response ?? value?.result?.response ?? value?.output ?? value;
+  // Workers AI bindings and its REST/OpenAI-compatible response surface differ
+  // across models. Accept actual assistant content, never private reasoning.
+  const raw = value?.response ?? value?.choices?.[0]?.message?.content ??
+    value?.result?.response ?? value?.result?.choices?.[0]?.message?.content ??
+    value?.output ?? value;
   if(raw && typeof raw === 'object' && !Array.isArray(raw)) return normalizeNote(raw);
-  if(typeof raw!=='string') throw new ContractError('AI returned no JSON');
+  if(typeof raw!=='string') throw new ContractError('AI returned no assistant JSON');
   const trimmed=raw.trim();
   const json=trimmed.startsWith('```') ? trimmed.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'') : trimmed;
   let parsed;
@@ -92,21 +96,25 @@ export async function handleRequest(request,env={},ctx={}) {
     if(!limited.success) return err('RATE_LIMITED',{'retry-after':'60'});
   } catch {return err('AI_UNAVAILABLE');}
   const model=typeof env.AI_MODEL==='string' && /^@cf\/[a-z0-9_-]+\/[a-z0-9._-]+$/i.test(env.AI_MODEL)
-    ?env.AI_MODEL:'@cf/qwen/qwen3-30b-a3b-fp8';
+    ?env.AI_MODEL:'@cf/zai-org/glm-4.7-flash';
   const max_tokens=Math.min(2600,Math.max(400,Number(env.AI_MAX_TOKENS)||1700));
-  const timeout=Math.min(45000,Math.max(5000,Number(env.AI_TIMEOUT_MS)||25000));
+  const timeout=Math.min(45000,Math.max(5000,Number(env.AI_TIMEOUT_MS)||45000));
   const started=Date.now();
   let timedOut=false;
+  const deadline=started+timeout;
   try {
     // One limited retry only for malformed output, not for provider errors / billable outages.
     for(let attempt=0;attempt<2;attempt++){
+      const remaining=deadline-Date.now();
+      if(remaining<1000) return err('AI_TIMEOUT');
       let timer;
       let result;
       try {
         result=await Promise.race([
           env.AI.run(model,{messages:[{role:'system',content:PROMPT},{role:'user',content:promptFor(body.data)}],
-            max_tokens, temperature:0.25, response_format:{type:'json_schema',json_schema:NOTE_SCHEMA}}),
-          new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;reject(new Error('AI timeout'));},timeout);})
+            max_tokens, temperature:0.25,
+            response_format:{type:'json_schema',json_schema:{name:'NoteStructure',schema:NOTE_SCHEMA,strict:true}}}),
+          new Promise((_,reject)=>{timer=setTimeout(()=>{timedOut=true;reject(new Error('AI timeout'));},remaining);})
         ]);
       }finally{clearTimeout(timer);}
       let structure;
