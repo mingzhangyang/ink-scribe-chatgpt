@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {ContractError, MAX_TEXT_LENGTH, NOTE_SCHEMA, normalizeNote, validateSticker, validateStructureRequest} from '../public/assets/contracts.js';
 import {EXAMPLE, formatOffline} from '../public/assets/offline.js';
+import {defaultSettings, planPages} from '../public/assets/renderer.js';
 const request = (x = {}) => ({text:'读书笔记：观察和思考',template:'reading-notes',language:'auto',style:'hybrid-cornell',...x});
 
 test('full sample normalizes to contract fields',() => {
@@ -30,9 +31,9 @@ test('unknown request and text too long are declined',() => {
 });
 test('sticker position, pagination and transform bounds are checked',() => {
   const s={id:'s1',type:'star',x:380,y:380,scale:1,page:0,rotation:0};
-  assert.equal(validateSticker(s),true);
-  for(const patch of [{x:-1},{scale:0},{page:-1},{page:64},{rotation:220},{type:'<img onerror=alert(1)>'},{y:Infinity}]) {
-    assert.equal(validateSticker({...s,...patch}),false);
+  assert.equal(validateSticker(s,1),true);
+  for(const patch of [{x:-1},{scale:0},{page:-1},{page:1},{rotation:220},{type:'<img onerror=alert(1)>'},{y:Infinity}]) {
+    assert.equal(validateSticker({...s,...patch},1),false);
   }
 });
 test('offline text formatting stays explicitly non-AI and keeps facts',() => {
@@ -65,4 +66,38 @@ test('editor normalization never silently crops longer body, cue, or summary',()
 test('a model cannot silently replace oversized content with truncated data',()=>{
   const note={title:'short',cues:[],sections:[{heading:'',content:'x'.repeat(1601),highlights:[]}],summary:'short'};
   assert.throws(()=>normalizeNote(note,{forAI:true}),/sections\[0\].content/);
+});
+
+test('sticker page bounds come from the current document, not a fixed cap',()=>{
+  const s={id:'late',type:'star',x:380,y:380,scale:1,page:64,rotation:0};
+  assert.equal(validateSticker(s,65),true,'page 65 is valid in a 65-page document');
+  assert.equal(validateSticker(s,64),false,'the same page is invalid after the document shrinks');
+  assert.equal(validateSticker({...s,page:999},1000),true);
+  assert.equal(validateSticker({...s,page:1000},1000),false);
+  for(const page of [-1,0.5,NaN,Infinity,'64',Number.MAX_SAFE_INTEGER+1]) {
+    assert.equal(validateSticker({...s,page},1000),false);
+  }
+});
+
+test('sticker validation requires an explicit positive safe-integer page count',()=>{
+  const s={id:'first',type:'star',x:380,y:380,scale:1,page:0,rotation:0};
+  assert.equal(validateSticker(s,1),true);
+  for(const count of [undefined,null,0,-1,1.5,NaN,Infinity,'100',{},Number.MAX_SAFE_INTEGER+1]) {
+    assert.equal(validateSticker(s,count),false,'invalid page count: '+String(count));
+  }
+});
+
+test('full local documents support stickers on later and final pages in every layout',()=>{
+  const source='\u89c2\u5bdf\u8bb0\u5f55\u3002\n'.repeat(4000);
+  const note=normalizeNote(formatOffline(source));
+  assert.equal([...source].length,24000);
+  assert.equal(note.sections.map(s=>s.content).join(''),source,'keep all authored text');
+  const ctx={font:'',measureText:s=>({width:[...String(s)].length*11})};
+  const sticker={id:'long-note',type:'sticky-note',x:380,y:380,scale:1,page:0,rotation:0};
+  for(const layout of ['hybrid-cornell','classic-cornell','free-journal','minimal']) {
+    const count=planPages(ctx,note,{...defaultSettings(),layout}).pages.length;
+    assert.ok(count>64,layout+': fixture must exceed the old cap');
+    for(const page of [0,63,64,count-1])assert.equal(validateSticker({...sticker,page},count),true);
+    assert.equal(validateSticker({...sticker,page:count},count),false);
+  }
 });

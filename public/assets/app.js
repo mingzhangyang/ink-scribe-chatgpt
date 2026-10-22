@@ -111,7 +111,7 @@ function installOptions() {
       if (settings.stickers.length >= 36) {toast('最多可以添加 36 个贴纸。', true); return;}
       ensurePlan();
       const item = {id: (globalThis.crypto?.randomUUID?.() || `sticker-${Date.now()}-${Math.random().toString(36).slice(2)}`), type, x: Math.min(690, 425 + Math.random() * 80), y: Math.min(950, 380 + Math.random() * 90), rotation: 0, scale: 1, page: currentPage};
-      if (!validateSticker(item)) {toast('无法创建贴纸。', true);return;}
+      if (!validateSticker(item,plan.pages.length)) {toast('无法创建贴纸。', true);return;}
       settings.stickers.push(item); selectSticker(item.id); markEdited();
       toast(`已添加${label}，可在纸上拖动位置。`);
     });

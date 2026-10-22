@@ -113,10 +113,12 @@ export function validateStructureRequest(value) {
   return null;
 }
 
-export function validateSticker(s) {
-  return isRecord(s) && typeof s.id==='string' && s.id.length<60 &&
+/** Sticker pages belong to the current document, not a fixed-size page pool. */
+export function validateSticker(s,pageCount) {
+  return Number.isSafeInteger(pageCount) && pageCount>0 &&
+    isRecord(s) && typeof s.id==='string' && s.id.length<60 &&
     ['tape','sticky-note','paperclip','star','coffee-stain','custom-doodle'].includes(s.type) &&
     ['x','y','rotation','scale','page'].every(k=>Number.isFinite(s[k])) &&
     s.x>=0 && s.x<=820 && s.y>=0 && s.y<=1160 && s.scale>=0.35 && s.scale<=2.5 &&
-    s.rotation>=-180 && s.rotation<=180 && Number.isSafeInteger(s.page) && s.page>=0 && s.page<64;
+    s.rotation>=-180 && s.rotation<=180 && Number.isSafeInteger(s.page) && s.page>=0 && s.page<pageCount;
 }

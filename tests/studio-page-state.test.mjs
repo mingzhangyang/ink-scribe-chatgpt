@@ -105,3 +105,63 @@ test('copy can rebuild the initial plan before the first preview frame', async t
   assert.equal(studio.writes.length, 1);
   studio.flush(); assert.equal(studio.pages()[0], 1);
 });
+
+const longStickerSource='\u89c2\u5bdf\u8bb0\u5f55\u3002\n'.repeat(4000);
+async function goToPage(studio,number) {
+  studio.flush();
+  const current=studio.pages()[0];
+  const direction=number>current?'next-page':'prev-page';
+  for(let i=0;i<Math.abs(number-current);i++)await studio.element(direction).fire('click');
+  studio.flush();assert.equal(studio.pages()[0],number);
+}
+async function copiedStickerCount(studio) {
+  const before=studio.writes.length;
+  await studio.element('copy').fire('click');
+  assert.equal(studio.writes.length,before+1,'copy must render the selected page');
+  const text=await studio.writes.at(-1)[0].data['image/png'].text();
+  return text.split('\n').filter(line=>line==='remember').length;
+}
+
+test('local note stickers can be created and copied on page 65 and the last page',async t=>{
+  const studio=await openStudio(t);
+  studio.element('source-text').value=longStickerSource;
+  await studio.element('offline').fire('click');studio.flush();
+  const total=studio.pages()[1];
+  assert.ok(total>65);
+  for(const page of [65,total]) {
+    await goToPage(studio,page);
+    await studio.element('stickers').children[1].fire('click');
+    assert.match(studio.element('toast').textContent,/\u5df2\u6dfb\u52a0/);
+    assert.equal(await copiedStickerCount(studio),1,'sticker missing on page '+page);
+  }
+  await goToPage(studio,64);
+  assert.equal(await copiedStickerCount(studio),0,'stickers stay on their assigned page');
+  await goToPage(studio,65);
+  assert.equal(await copiedStickerCount(studio),1,'the later-page sticker is retained');
+});
+
+test('sticker creation rebuilds page bounds after an edit before the preview frame',async t=>{
+  const studio=await openStudio(t);
+  studio.element('source-text').value='Small note';
+  await studio.element('offline').fire('click');studio.flush();
+  await studio.edit('field-2',longStickerSource);studio.flush();
+  await goToPage(studio,65);
+  await studio.edit('field-2','SHORT_BODY');
+  assert.ok(studio.frames.length,'shrink must leave the preview pending');
+  await studio.element('stickers').children[1].fire('click');
+  assert.match(studio.element('toast').textContent,/\u5df2\u6dfb\u52a0/);
+  assert.equal(await copiedStickerCount(studio),1,'sticker must be placed on the surviving page');
+  studio.flush();assert.deepEqual(studio.pages(),[1,1]);
+});
+
+test('late-page stickers retain the independent 36-sticker document limit',async t=>{
+  const studio=await openStudio(t);
+  studio.element('source-text').value=longStickerSource;
+  await studio.element('offline').fire('click');studio.flush();
+  await goToPage(studio,65);
+  for(let i=0;i<36;i++)await studio.element('stickers').children[1].fire('click');
+  assert.equal(await copiedStickerCount(studio),36);
+  await studio.element('stickers').children[1].fire('click');
+  assert.match(studio.element('toast').textContent,/36/);
+  assert.equal(await copiedStickerCount(studio),36,'failed insertion must not change the document');
+});
