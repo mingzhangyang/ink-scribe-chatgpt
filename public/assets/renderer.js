@@ -79,6 +79,11 @@ export function planPages(ctx,note,settings){
   const bodyBottom=classic?832:PAGE.bottom;
   const lineHeight=density(settings);
   const font=bodyStyle(settings);
+  const hasText=text=>String(text??'').trim().length>0;
+  // Empty editable cue fields are not paragraphs and must not reserve lines.
+  // Keep wrapText's authored blank lines for genuinely nonempty descriptions.
+  const wrapCue=(text,width,font)=>hasText(text)?wrapText(ctx,text,width,font):[];
+  const cues=(note.cues||[]).filter(cue=>hasText(cue.keyword)||hasText(cue.note));
   const pages=[{placements:[],index:0}];
   let page=pages[0],y=layout==='free-journal'?255:PAGE.top;
   const next=()=>{page={placements:[],index:pages.length};pages.push(page);y=PAGE.top;};
@@ -86,25 +91,31 @@ export function planPages(ctx,note,settings){
   const add=(entry,height)=>{ensure(height);page.placements.push({...entry,y});y+=height;};
   // Spacing does not own a page: only the next real content may advance it.
   const gap=height=>{y+=height;};
+  // Decorations belong to existing content, never to a new overflow page.
+  const decorate=(entry,height)=>{
+    if(page.placements.length>0 && y+height<=bodyBottom){
+      page.placements.push({...entry,y});y+=height;
+    }
+  };
 
   // Free and minimal layouts preserve each cue AND its description as real lines.
   // No decorative chips or fixed item slices stand in for the full cue content.
-  if(!side && note.cues.length){
+  if(!side && cues.length){
     add({kind:'cues-header'},37);
     const cueFont=`18px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`;
-    for(const cue of note.cues){
-      const text=cue.note?`${cue.keyword}  /  ${cue.note}`:cue.keyword;
+    for(const cue of cues){
+      const text=[cue.keyword,cue.note].filter(hasText).join('  /  ');
       for(const line of wrapText(ctx,text,mainWidth-22,cueFont))add({kind:'cue-body',text:line},28);
       gap(11);
     }
-    add({kind:'cue-divider'},12);
+    decorate({kind:'cue-divider'},12);
   }
   for(const [sectionIndex,section] of note.sections.entries()){
     if(section.heading){
       const headings=wrapText(ctx,section.heading,mainWidth-15,'bold 26px '+(FONT_STACKS[settings.font]||FONT_STACKS.graceful));
       ensure(headings.length*37+lineHeight*2);
       for(const line of headings)add({kind:'heading',text:line,sectionIndex},36);
-    }else if(sectionIndex!==0)add({kind:'separator'},18);
+    }else if(sectionIndex!==0)decorate({kind:'separator'},18);
     const lines=wrapText(ctx,section.content,mainWidth,font);
     for(const line of lines)add({kind:'body',text:line,highlights:section.highlights||[],sectionIndex},lineHeight);
     // Classic Cornell's summary has its own reserved band, not body spacing.
@@ -135,9 +146,9 @@ export function planPages(ctx,note,settings){
     const cueBottom=classic?820:1005;
     let cuePage=[],cursor=270;
     const pushPage=()=>{cuePages.push(cuePage);cuePage=[];cursor=270;};
-    for(const cue of note.cues||[]){
-      const keyLines=wrapText(ctx,cue.keyword,168,`bold 21px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
-      const noteLines=wrapText(ctx,cue.note,169,`16px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
+    for(const cue of cues){
+      const keyLines=wrapCue(cue.keyword,168,`bold 21px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
+      const noteLines=wrapCue(cue.note,169,`16px ${FONT_STACKS[settings.font]||FONT_STACKS.graceful}`);
       let item={keyLines:[],noteLines:[]},height=0;
       const flush=()=>{if(height){cuePage.push(item);cursor+=height+38;item={keyLines:[],noteLines:[]};height=0;}};
       for(const [type,lines,step] of [['keyLines',keyLines,27],['noteLines',noteLines,25]]){
